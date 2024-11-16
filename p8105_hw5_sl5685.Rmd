@@ -5,6 +5,13 @@ date: "2024-11-14"
 output: github_document
 ---
 
+```{r}
+library(tidyverse)
+library(rvest)
+library(broom)
+set.seed(1)
+```
+
 ## Problem 1
 
 ```{r}
@@ -14,8 +21,109 @@ output: github_document
 ## Probelm 2
 
 ```{r}
-
+# Generate datasets
+dataset = function(n, mu, sigma) {
+  rnorm(n, mean = mu, sd = sigma)
+}
 ```
+
+```{r}
+# perform t-test
+t_test = function(data, alpha) {
+  t_test_result = t.test(data, mu = 0)
+  tidy_result = tidy(t_test_result)
+  tidy_result$reject_null = tidy_result$p.value < alpha
+  return(tidy_result)
+}
+```
+
+```{r}
+# Simulation for 𝜇={0,1,2,3,4,5,6}
+simulate_multiple_mu = function(n = 30, sigma = 5, mu_values = 0:6, 
+                                n_simulations = 5000, alpha = 0.05) {
+  
+  results_list = list()
+
+  for (mu in mu_values) {
+    mu_hats = numeric(n_simulations)
+    p_values = numeric(n_simulations)
+    reject_nulls = logical(n_simulations)
+
+    for (i in 1:n_simulations) {
+
+      x = dataset(n, mu, sigma)
+      
+      tidy_result = t_test(x, alpha)
+      mu_hats[i] = tidy_result$estimate
+      p_values[i] = tidy_result$p.value
+      reject_nulls[i] = tidy_result$reject_null
+    }
+
+    results_list[[paste0("mu_", mu)]] =
+      data.frame(mu = mu, mu_hat = mu_hats, p_value = p_values, 
+                 reject_null = reject_nulls)
+  }
+
+  return(do.call(rbind, results_list))
+}
+
+results = simulate_multiple_mu()
+```
+
+```{r}
+# Calculate the power of the test for each mu
+power_results = results |>
+  mutate(mu = as.numeric(mu)) |>
+  group_by(mu) |>
+  summarize(power = round(mean(reject_null), 4))
+```
+
+```{r}
+# Plot the power
+ggplot(power_results, aes(x = mu, y = power)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "power vs mu",
+       x = "Mu",
+       y = "Power") +
+  theme_minimal()
+```
+
+There is a direct relationship between effect size and power: as the effect size increases, the power of the test also increases, which means that the test is more sensitive to detecting true effects.
+
+```{r}
+# Calculate the average estimate of mu_hat for each mu value
+average_mu_hat = results |>
+  mutate(mu = as.numeric(mu)) |>
+  group_by(mu) |>
+  summarize(mu_hat = mean(mu_hat))
+
+# Calculate the average estimate of mu_hat for samples where the null was rejected
+average_mu_hat_rejected = results |>
+  filter(reject_null == TRUE) |>
+  mutate(mu = as.numeric(mu)) |>
+  group_by(mu) |>
+  summarize(mu_hat = mean(mu_hat))
+```
+
+```{r}
+average_mu_hat$group = "All Samples"
+average_mu_hat_rejected$group = "Rejected Null"
+combined_data = rbind(average_mu_hat, average_mu_hat_rejected)
+
+ggplot(combined_data, aes(x = mu, y = mu_hat, color = group)) +
+  geom_line(aes(linetype = group)) +
+  geom_point() +
+  labs(title = "Average Estimate of Mu Hat vs True Value of Mu",
+       x = "True Value of Mu",
+       y = "Average Estimate of Mu Hat",
+       color = "Group",
+       linetype = "Group") +
+  theme_minimal() +
+  scale_color_manual(values = c("All Samples" = "blue", "Rejected Null" = "red"))
+```
+
+No. Due to selection bias, the sample mean of mu hat is not equal to the true value of mu in the test that rejects the null hypothesis. Only samples with large deviations from zero are included, which inflates the mean estimate, especially when the true mean is small. As the true mean increases, this bias decreases and the estimate becomes closer to the actual value.
 
 ## Probelm 3
 
