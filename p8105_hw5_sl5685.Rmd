@@ -9,13 +9,46 @@ output: github_document
 library(tidyverse)
 library(rvest)
 library(broom)
+library(purrr)
 set.seed(1)
 ```
 
 ## Problem 1
 
 ```{r}
+# Function to check if at least two people share a birthday
+duplicate_birthday = function(n) {
+  birthdays = sample(1:365, n, replace = TRUE)
+  return(any(duplicated(birthdays)))
+}
+```
 
+```{r}
+num_simulations = 10000
+group_sizes = 2:50
+probabilities = numeric(length(group_sizes))
+
+# Loop through each group size and calculate the probability
+for (i in seq_along(group_sizes)) {
+  group_size = group_sizes[i]
+  
+  results = replicate(num_simulations, duplicate_birthday(group_size))
+  
+  probabilities[i] = mean(results)
+}
+```
+
+```{r}
+data = data.frame(GroupSize = group_sizes, Probability = probabilities)
+
+# Plot the probability
+ggplot(data, aes(x = GroupSize, y = Probability)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Probability of Shared Birthdays vs Group Size",
+       x = "Group Size",
+       y = "Probability of Shared Birthdays") +
+  theme_minimal()
 ```
 
 ## Probelm 2
@@ -128,6 +161,58 @@ No. Due to selection bias, the sample mean of mu hat is not equal to the true va
 ## Probelm 3
 
 ```{r}
-
+# Import data
+homicides = read_csv("./data/homicide_data.csv")
 ```
 
+There are 52,179 rows and 12 variables in the dataset. The data contains records of homicides in various U.S. cities, including details like the victim's demographics, location of the homicide, and the case status (e.g., closed or unsolved).
+
+```{r}
+# Create a `city_state` variable
+homicides_summary = homicides |>
+  mutate(city_state = paste(city, state, sep = ", ")) |>
+  group_by(city_state) |>
+  summarise(
+    total_homicides = n(),
+    unsolved_homicides = sum(disposition %in% c("Closed without arrest", "Open/No arrest"))
+  )
+```
+
+```{r}
+# Use `prop.test` for Baltimore, MD
+baltimore_data = homicides_summary |>
+  filter(city_state == "Baltimore, MD")
+
+baltimore_test = 
+  prop.test(baltimore_data$unsolved_homicides, baltimore_data$total_homicides)
+
+baltimore_result = broom::tidy(baltimore_test)
+
+baltimore_result
+```
+
+```{r}
+# Perform prop.test for all cities
+cities_tests = homicides_summary |>
+  mutate(
+    prop_test_result = map2(unsolved_homicides, total_homicides, ~ prop.test(.x, .y) |> broom::tidy())
+  ) |>
+  unnest(cols = prop_test_result)
+```
+
+```{r}
+# Create a plot with estimates and confidence intervals
+cities_tests |>
+  ggplot(aes(x = reorder(city_state, estimate), y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  coord_flip() +
+  labs(
+    title = "Proportion of Unsolved Homicides by City",
+    x = "City, State",
+    y = "Proportion of Unsolved Homicides"
+  ) +
+  theme_minimal()
+```
+
+The plot shows the proportion of unsolved homicides across U.S. cities, with confidence intervals for each estimate. Cities like Chicago, New Orleans, and Baltimore have high unsolved rates, while others like Tulsa, AL, have much lower rates, highlighting disparities in case resolution.
